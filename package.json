@@ -1,5 +1,5 @@
 {
-  "name": "hono-cloudflare-pages-d1-yamada-ui-template",
+  "name": "hono-todo",
   "type": "module",
   "scripts": {
     "ai": "echo 'LLM 相談用' && node ./scripts/copyFiles.js",
