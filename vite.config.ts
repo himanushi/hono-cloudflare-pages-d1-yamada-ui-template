@@ -1,29 +1,100 @@
-import devServer, { defaultOptions } from "@hono/vite-dev-server"
-import { defineConfig } from "vite"
+import path from "node:path";
+import {
+  defineWorkersConfig,
+  readD1Migrations,
+} from "@cloudflare/vitest-pool-workers/config";
+import pages from "@hono/vite-cloudflare-pages";
+import devServer from "@hono/vite-dev-server";
+import adapter from "@hono/vite-dev-server/cloudflare";
+import { viteStaticCopy } from "vite-plugin-static-copy";
+import tsconfigPaths from "vite-tsconfig-paths";
 
-export default defineConfig(({ mode }) => {
+export default defineWorkersConfig(async ({ mode }) => {
   if (mode === "client") {
     return {
       build: {
         rollupOptions: {
-          input: "./src/client.tsx",
+          input: "./src/client/client.tsx",
           output: {
             entryFileNames: "static/client.js",
           },
+          external: ["hono", "@hono/zod-validator"],
         },
       },
-    }
-  } else {
+      plugins: [
+        viteStaticCopy({
+          targets: [
+            {
+              src: "static",
+              dest: "",
+            },
+          ],
+        }),
+        tsconfigPaths(),
+      ],
+    };
+  }
+  if (mode === "server") {
     return {
       ssr: {
-        external: ["react", "react-dom"],
+        external: [
+          "react",
+          "react-dom",
+          "react-router-dom",
+          "@ionic/react",
+          "@ionic/react-router",
+          "@tanstack/react-query",
+        ],
       },
       plugins: [
+        pages(),
         devServer({
-          exclude: ["/*", ...defaultOptions.exclude],
+          adapter,
           entry: "src/index.tsx",
         }),
+        tsconfigPaths(),
       ],
-    }
+      poolOptions: {
+        workers: {
+          miniflare: {},
+          wrangler: { configPath: "./wrangler.toml" },
+        },
+      },
+    };
   }
-})
+
+  // test
+  const migrationsPath = path.join(__dirname, "src", "db", "migrations");
+  const migrations = await readD1Migrations(migrationsPath);
+
+  return {
+    test: {
+      setupFiles: ["./test/apply-migrations.ts"],
+      poolOptions: {
+        workers: {
+          singleWorker: true,
+          wrangler: {
+            configPath: "./wrangler.toml",
+          },
+          miniflare: {
+            bindings: { TEST_MIGRATIONS: migrations },
+          },
+        },
+      },
+    },
+    plugins: [
+      devServer({
+        adapter,
+        entry: "src/index.tsx",
+      }),
+      pages(),
+      tsconfigPaths(),
+    ],
+    poolOptions: {
+      workers: {
+        miniflare: {},
+        wrangler: { configPath: "./wrangler.toml" },
+      },
+    },
+  };
+});
